@@ -1,0 +1,81 @@
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    ports:
+      - 27017:27017
+    volumes:
+      - mongo1-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=H*ckSleuths
+
+  middleware:
+    build: 
+      context: ./middleware
+      dockerfile: fastapi.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./middleware:/app
+      - ./reports:/reports
+    environment:
+      - MONGO_URI=mongodb://admin:H*ckSleuths@mongo:27017/
+      - MONGO_DB=mlresults
+      - MONGO_COLLECTION=experiments
+    depends_on:
+      - mongo
+  
+  rabbitmq:
+    image: rabbitmq
+    restart: unless-stopped
+    ports:
+      - 5672:5672
+  
+  celery:
+    build: 
+      context: ./ml_code
+      dockerfile: celery.Dockerfile
+    command: celery -A celery_app worker -l info
+    restart: unless-stopped
+    environment:
+      - MONGO_URI=mongodb://admin:H*ckSleuths@127.0.0.1:27017/
+      - MONGO_DB=mlresults
+      - MONGO_COLLECTION=experiments
+      - CELERY_BROKER_URL=pyamqp://guest@127.0.0.1:5672//
+    depends_on:
+      - rabbitmq
+      - mongo
+    volumes:
+      - ./ml_code:/app
+      - ./reports:/reports
+    network_mode: "host"
+
+  celery-beat:
+    build: 
+      context: ./ml_code
+      dockerfile: celery.Dockerfile
+    command: celery -A celery_app beat -l info --schedule /tmp/celerybeat-schedule
+    restart: unless-stopped
+    environment:
+      - CELERY_BROKER_URL=pyamqp://guest@rabbitmq//
+    depends_on:
+      - rabbitmq
+      - mongo
+    volumes:
+      - ./ml_code:/app
+  
+  node-server:
+    build:
+      context: ./Blockchain/Optimism
+      dockerfile: nodejs.Dockerfile
+    command: node server.js
+    depends_on:
+      - mongo
+    volumes:
+      - ./Blockchain/Optimism:/app
+
+
+volumes:
+  mongo1-data:
